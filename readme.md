@@ -1,11 +1,13 @@
 # Welcome to a simple AUR helper written in python named nob 
  # 1 - Downloading 🛜.
-  - To download nob you need to clone the repo ->
+  - To download nob you need to clone the repo -> (If you want to install with PKGBUILD you'll need to download the latest release to have the PKGBUILD file).
   `git clone ....`
  # 2 - Installing ⬇️.
     ## 2.1 - Checking dependencies for `makepkg -si`
      - Run `pacman -S base-devel fakeroot debugedit
   - nob isn't available in AUR yet.
+  - run "makepkg -si"
  # 3 Use it
   - You can now use it by doing `nob -h`
+
 
