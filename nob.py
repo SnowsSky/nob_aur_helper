@@ -57,6 +57,9 @@ Install_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={args.instal
 
 pckg_archive = f"{args.install}.git"
 
+if not os.path.exists("db.txt"):
+    os.system("touch db.txt")
+
 def version():
     print(f"{BOLD}Nob {_version}{END}")
 
