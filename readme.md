@@ -5,6 +5,7 @@
  # 2 - Installing ⬇️.
     ## 2.1 - Checking dependencies for `makepkg -si`
      - Run `pacman -S base-devel fakeroot debugedit
-  - Run `makepkg -si` in the folder you had download.
+  - nob isn't available in AUR yet.
  # 3 Use it
   - You can now use it by doing `nob -h`
+
