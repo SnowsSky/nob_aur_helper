@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-
-
 import argparse
 import json
 import urllib.request
@@ -262,3 +260,4 @@ def AUR_upgr():
     return
 
 main()
+
