@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
+# MADE BY SnowsSky.
 import argparse
 import json
 import urllib.request
 import subprocess
 import os
 import sys
-import shutil
-
+import random
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-S", type=str, required=False, help=f"Install a package from AUR" ,dest="install")
     parser.add_argument("-Ss", type=str, required=False, help=f"Search a package from AUR" ,dest="search")
     parser.add_argument("-Sa", action='store_true', required=False, help="Upgrades AUR packages", dest="aur_upgrade")
+    parser.add_argument("-Qa", action='store_true', required=False, help="Show all packages installed with nob", dest="show_installed_aur_pkgs")
     parser.add_argument("-v", action='store_true', required=False, help="See the current version of nob", dest="nob_version")
-    parser.add_argument('-R', type=None, required=False, help=f'Remove a package.',dest="remove")
+    parser.add_argument('-R', type=str, required=False, help=f'Remove a package.',dest="remove")
     parser.add_argument('-Rns', type=str, required=False, help=f'Remove a package.',dest="remove")
     parser.add_argument('-Rsn', type=str, required=False, help=f'Remove a package.',dest="remove")
     parser.add_argument('-Rs', type=str, required=False, help=f'Remove a package.',dest="remove")
@@ -21,7 +22,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.1.0"
+_version = "1.2.0"
 # COLORS
 BLACK = "\033[0;30m"
 RED = "\033[0;31m"
@@ -56,12 +57,20 @@ Install_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={args.instal
 pckg_archive = f"{args.install}.git"
 
 if not os.path.exists("db.txt"):
-    os.system("touch db.txt")
+    try:
+        r = subprocess.run(['touch', 'db.txt' ], text=True, capture_output=True)
+        if not r.returncode == 0:
+            print(f"{RED}==> ERROR{END} : Error while trying to create db file")
+    except Exception as e:
+        print(f"{RED}==> ERROR{END} : Error while trying to create db file : {e}")
 
 def version():
     print(f"{BOLD}Nob {_version}{END}")
 
 def main():
+    if args.show_installed_aur_pkgs:
+        installed_aur_pkgs()
+        return 
     if args.nob_version:
         version()
         return
@@ -74,21 +83,21 @@ def main():
     if args.search:
         find_pkg(args.search)
         return
-    if not args.install and not args.search and not args.remove:
+    if not args.install:
         print(f"{CYAN}==>{END} Checking For updates...")
         
         os.system("sudo pacman -Syu")
         
         return
     if args.install:
-        result = find_pkg(args.install)
+        result = download_find_pkg(args.install)
         if result == 0:
             return
         
         with urllib.request.urlopen(f"{Install_URL}") as response:
             data = response.read().decode("utf-8")
             rep = json.loads(data)
-        download_path = str(f"https://aur.archlinux.org/{args.install}.git") #?format=gzip
+        
         pkg_version = rep['results'][0]['Version']
 
         r = subprocess.run(['pacman', '-Q' , args.install], text=True, capture_output=True)
@@ -100,7 +109,7 @@ def main():
             print(f"{RED}==> CANCELED{END} : Installation Canceled.")
             return
             
-        download_pckg(download_path, pkg_version)
+        download_pckg(args.install, pkg_version)
             
 
 def remove_pckg():
@@ -147,15 +156,15 @@ def remove_pckg():
     f.close()
     
 
-
-def download_pckg(download_path, pkg_version):
-
-    print(f"{CYAN}==>{END} Cloning {args.install}'s repository...")
+def download_pckg(pkg, pkg_version):
+    download_path = str(f"https://aur.archlinux.org/{pkg}.git") #?format=gzip
+    print(download_path)
+    print(f"{CYAN}==>{END} Cloning {pkg}'s repository...")
+    
     r = subprocess.run(['pacman', '-Q' , 'git'], text=True, capture_output=True)
     if not r.returncode == 0:
         print(f"{RED}==> ERROR{END} : Missing package 'git'")
         return
-
 
     try :
         os.system(f"sudo rm -rf {pckg_archive}")
@@ -169,23 +178,21 @@ def download_pckg(download_path, pkg_version):
         print(f"{RED}==> ERROR {END} : {e}.")
         return
 
-    install_pckg(pkg_version)
+    install_pckg(pkg_version, pkg)
 
 
-
-
-def install_pckg(pkg_version):
+def install_pckg(pkg_version, pkg):
     print(f"{CYAN}==>{END} Checking required dependencies for makepkg...")
     r = subprocess.run(['pacman', '-Q', 'fakeroot', 'debugedit', 'base-devel'], capture_output=True, text=True)
     if not r.returncode == 0:
         print(f"{YELLOW}==> WARNING{END} : Missing dependencies, Installing them...")
         os.system("sudo pacman -S base-devel fakeroot debugedit")
 
-    print(f"{CYAN}==>{END} Going to ./{args.install} directory...")
+    print(f"{CYAN}==>{END} Going to ./{pkg} directory...")
     try:
-        os.chdir(f"./{args.install.lower()}")
+        os.chdir(f"./{pkg.lower()}")
     except Exception as e:
-        print(f"{RED}==> ERROR{END} : cannot find ./{args.install}.")
+        print(f"{RED}==> ERROR{END} : cannot find ./{pkg}.")
         return
     try:
         print(f"{CYAN}==>{END} Executing makepkg")
@@ -194,28 +201,93 @@ def install_pckg(pkg_version):
     except Exception as e:
         print(f"{RED}==> ERROR{END} : {e}.")
         return
-    clean(pkg_version)
+    clean(pkg_version, pkg)
 
-def clean(pkg_version):
+def clean(pkg_version, pkg):
     print(f"{CYAN}==>{END} Cleaning installation...")
     os.chdir("../")
     try:
-        os.system(f"sudo rm -rf ./{args.install.lower()}")
+        os.system(f"sudo rm -rf ./{pkg.lower()}")
     except Exception as e:
         print(f"{RED}==> ERROR{END} : Error while cleaning :{e}.")
         return
-    print(f"{GREEN}==>{END} Installation finished !")
+    print(f"{CYAN}==>{END} Adding {pkg} to nob's DB...")
+    #Add the pkg to db (if already exit, editing it with new version)
     with open('db.txt', 'r+') as file:
-            if not f"{args.install} {pkg_version}\n" in file.readlines():
-                file.write(f"{args.install} {pkg_version}\n")
+        lines = file.readlines()
+        found = False
+        for i, line in enumerate(lines):
+            if line.strip() and line.split()[0] == pkg:
+                lines[i] = f"{pkg} {pkg_version}\n"
+                found = True
+                break
+        if not found:
+            lines.append(f"{pkg} {pkg_version}\n")
+            
+        file.seek(0)
+        file.writelines(lines)
+        file.truncate()
+    print(f"{GREEN}==>{END} Installation finished !")
+            
     file.close()
    
+def installed_aur_pkgs():
+    print(f"{CYAN}==>{END} Reading nob's DB...")
+    packages = []
+    # reading db file + Adding Packages in packages var 
+    with open('db.txt', 'r') as file:
+        for lign in file.readlines():
+            pckg_name, pckg_ver = lign.strip().split()
+            packages.append({
+            "pckg_name": pckg_name,
+            "pckg_ver": pckg_ver
+        })
+    nb_packages = len(packages)
+    print(f"{GREEN}==>{END} {nb_packages} Package(s) were found installed with nob :")
+    for package in packages:
+        pkg_name = package['pckg_name']
+        pkg_ver =  package['pckg_ver']
+        print(f"    {GREEN}==>{END} {pkg_name}/{pkg_ver}")
+
+
 
 def find_pkg(pkg):
-    Find_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={pkg}"
+    d_Find_URL = f"https://aur.archlinux.org/rpc/v5/search/{pkg}"
+    try : 
+        with urllib.request.urlopen(f"{d_Find_URL}") as response:
+            data = response.read().decode("utf-8")
+            rep = json.loads(data)
+        if not rep['results'][0]['URLPath']:
+            print(f"{RED}==> ERROR{END} : Cannot find result(s) for {pkg} on AUR.")
+            return 0
+    except Exception as e:
+        print(f"{RED}==> ERROR{END} : Cannot find package result(s) for {pkg} on AUR.")
+        return 0
+    results = int(rep['resultcount'])
+    max_results = 100
+    
+    if results <= max_results:
+        print(f"{GREEN}==>{END} {BOLD}{results}{END} results found for {pkg}.")
+    else:
+        print(f"{RED}==>{END} More than {BOLD}{max_results}{END} results found for {pkg}. Skipping {BOLD}{results - max_results}{END} Results.")
+        ask = input(f"{BOLD}==>{END} Do you want to see them anyways ? y/N : ")
+        if ask == "y":
+            max_results = results
+    for i in range(0, results):
+        if i > max_results:
+            return 1
+        pkg_name = rep['results'][i]['Name']
+        pkg_version = rep['results'][i]['Version']
+        pkg_maintainer = rep['results'][i]['Maintainer']
+        pkg_popularity = rep['results'][i]['Popularity']
+        print(f"{GREEN}==>{END} Package found : {pkg_name}/{pkg_version} by {pkg_maintainer} (Pop : {pkg_popularity})")
+    return 1
+
+def download_find_pkg(pkg):
+    d_Find_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={pkg}"
     try : 
 
-        with urllib.request.urlopen(f"{Find_URL}") as response:
+        with urllib.request.urlopen(f"{d_Find_URL}") as response:
             data = response.read().decode("utf-8")
             rep = json.loads(data)
         if not rep['results'][0]['URLPath']:
@@ -226,11 +298,12 @@ def find_pkg(pkg):
         return 0
     pkg_version = rep['results'][0]['Version']
     pkg_maintainer = rep['results'][0]['Submitter']
-    print(f"{GREEN}==>{END} Package found for query : {pkg}->{pkg_version} by {pkg_maintainer} .\n")
+    print(f"{GREEN}==>{END} Package found for query : {pkg}/{pkg_version} by {pkg_maintainer} .\n")
     return 1
 
 def AUR_upgr():
     packages = []
+    # reading db file + Adding Packages in packages var 
     with open('db.txt', 'r') as file:
         for lign in file.readlines():
             pckg_name, pckg_ver = lign.strip().split()
@@ -239,25 +312,32 @@ def AUR_upgr():
             "pckg_ver": pckg_ver
         })
     print(f"{CYAN}==>{END} Checking for AUR packages updates...")
+    #Check for updates && check if package is on th AUR.
     for package in packages:
-        with urllib.request.urlopen(f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={package['pckg_name']}") as response:
+        pkg_name = package['pckg_name']
+        with urllib.request.urlopen(f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={pkg_name}") as response:
             data = response.read().decode("utf-8")
             rep = json.loads(data)
             try : 
 
                 pkg_version = rep['results'][0]['Version']
+                result_name = rep['results'][0]['Name']
             except Exception:
-                print(f"{RED}==> ERROR{END} : DATABASE corrupted. Manual repair needed (PACKAGE {package['pckg_name']} found in database but not in AUR).")
+                print(f"{RED}==> ERROR{END} : DATABASE corrupted. Manual repair needed (PACKAGE {pkg_name} found in database but not in AUR).")
                 return
             
             if pkg_version != package['pckg_ver']:
-                print(f"{CYAN}==>{END} Available update found : {package['pckg_name']}{package['pckg_ver']} ==> {package['pckg_name']}{pkg_version}.")
-                ask = input(f"{BOLD}==> ASK{END} : Do you want to update {package['pckg_name']} ? Y/n : ")
+                print(f"{CYAN}==>{END} Available update found : {pkg_name}{package['pckg_ver']} ==> {pkg_name}{pkg_version}.")
+                ask = input(f"{BOLD}==> ASK{END} : Do you want to update {pkg_name} ? Y/n : ")
                 if ask == 'n':
                     print(f"\n{RED}==> CANCELED{END} : Update Canceled.")
+                else:
+                    print(result_name, pkg_version)
+                    download_pckg(result_name, pkg_version)
+            
+                
                     
     print(f"{CYAN}==>{END} No available updates found.")
     return
 
 main()
-
