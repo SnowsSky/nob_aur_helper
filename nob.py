@@ -22,7 +22,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.2.0"
+_version = "1.2.1"
 # COLORS
 BLACK = "\033[0;30m"
 RED = "\033[0;31m"
@@ -56,16 +56,38 @@ Install_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={args.instal
 
 pckg_archive = f"{args.install}.git"
 
-if not os.path.exists("db.txt"):
+
+if not os.path.exists("/usr/bin/nob_db.txt"):
     try:
-        r = subprocess.run(['touch', 'db.txt' ], text=True, capture_output=True)
+        r = subprocess.run(['sudo', 'touch', '/usr/bin/nob_db.txt' ], text=True, capture_output=True)
         if not r.returncode == 0:
             print(f"{RED}==> ERROR{END} : Error while trying to create db file")
+        subprocess.run(['sudo', 'chmod', '666', '/usr/bin/nob_db.txt'], text=True, capture_output=True)
     except Exception as e:
         print(f"{RED}==> ERROR{END} : Error while trying to create db file : {e}")
 
+def add_db(pkg, pkg_version):
+    with open('/usr/bin/nob_db.txt', 'r+') as file:
+        lines = file.readlines()
+        found = False
+        for i, line in enumerate(lines):
+            if line.strip() and line.split()[0] == pkg:
+                lines[i] = f"{pkg} {pkg_version}\n"
+                found = True
+                break
+        if not found:
+            lines.append(f"{pkg} {pkg_version}\n")
+            
+        file.seek(0)
+        file.writelines(lines)
+        file.truncate()
+    file.close()
+
 def version():
     print(f"{BOLD}Nob {_version}{END}")
+
+
+
 
 def main():
     if args.show_installed_aur_pkgs:
@@ -85,10 +107,12 @@ def main():
         return
     if not args.install:
         print(f"{CYAN}==>{END} Checking For updates...")
-        
-        os.system("sudo pacman -Syu")
-        
+        r = subprocess.run(['sudo', 'pacman', '-Syu'], text=True, stdout=True)
+        if not r.returncode == 0:
+            print(f"{RED}==> ERROR{END} : An error has occured while updating the system.")
         return
+        os.system("sudo pacman -Syu")
+
     if args.install:
         result = download_find_pkg(args.install)
         if result == 0:
@@ -139,17 +163,17 @@ def remove_pckg():
         print(f"\n{RED}==> CANCELED{END} : Uninstallation Canceled.")
         return
     print(f"{CYAN}==>{END} Removing {args.remove}...")
-    try:
-        os.system(f"sudo pacman --noconfirm {flag} {args.remove} ")
+    r = subprocess.run(['sudo', 'pacman', '--noconfirm', flag, args.remove], text=True, stdout=True)
+    if not r.returncode == 0:
+        print(f"{RED}==> ERROR{END} : An error has occured while deleting the package {args.remove} : {e}")
+        return
+        #os.system(f"sudo pacman --noconfirm {flag} {args.remove} ")
         
         #r = subprocess.run(['pacman', f'{flag}' '--noconfirm', 'args.remove'], text=True, capture_output=True)
-    except Exception as e:
-        print(f"{RED}==> ERROR{END} : An error has occured while delete the package {args.remove} : {e}")
-        return
     print(f"{GREEN}==>{END} Package {args.remove} successfully deleted from the system.")
-    with open("db.txt", "r") as f:
+    with open("/usr/bin/nob_db.txt", "r") as f:
         lines = f.readlines()
-    with open("db.txt", "w") as f:
+    with open("/usr/bin/nob_db.txt", "w") as f:
         for line in lines:
             if args.remove not in line.strip("\n"):
                 f.write(line)
@@ -194,16 +218,30 @@ def install_pckg(pkg_version, pkg):
     except Exception as e:
         print(f"{RED}==> ERROR{END} : cannot find ./{pkg}.")
         return
-    try:
-        print(f"{CYAN}==>{END} Executing makepkg")
-        os.system("makepkg -si")
-        #subprocess.run(['makepkg', '-si'], capture_output=True, text=True)
-    except Exception as e:
-        print(f"{RED}==> ERROR{END} : {e}.")
-        return
-    clean(pkg_version, pkg)
+    
+    ask = input(f"{BOLD}==>{END} Do you want to read PKGBUILD ? Y/n : ")
+    if ask == "n":
+        print("Skipping...")
+    else : 
+        os.system("cat ./PKGBUILD")
+        input(f"{BOLD}==>{END} Press any key to continue installation. ")
+        
 
-def clean(pkg_version, pkg):
+    print(f"{CYAN}==>{END} Executing makepkg")
+    #os.system("makepkg -si")
+    r = subprocess.run(['makepkg', '-si'], text=True, stdout=True)
+    if not r.returncode == 0:
+            
+        print(f"{RED}==> ERROR{END} : Error while running makepkg. \n{r.stdout}")
+        clean(pkg)
+        return
+        #subprocess.run(['makepkg', '-si'], capture_output=True, text=True)
+
+    clean(pkg)
+    #Add the pkg to db (if already exit, editing it with new version)
+    add_db(pkg, pkg_version)
+
+def clean(pkg):
     print(f"{CYAN}==>{END} Cleaning installation...")
     os.chdir("../")
     try:
@@ -211,31 +249,15 @@ def clean(pkg_version, pkg):
     except Exception as e:
         print(f"{RED}==> ERROR{END} : Error while cleaning :{e}.")
         return
-    print(f"{CYAN}==>{END} Adding {pkg} to nob's DB...")
-    #Add the pkg to db (if already exit, editing it with new version)
-    with open('db.txt', 'r+') as file:
-        lines = file.readlines()
-        found = False
-        for i, line in enumerate(lines):
-            if line.strip() and line.split()[0] == pkg:
-                lines[i] = f"{pkg} {pkg_version}\n"
-                found = True
-                break
-        if not found:
-            lines.append(f"{pkg} {pkg_version}\n")
+
             
-        file.seek(0)
-        file.writelines(lines)
-        file.truncate()
-    print(f"{GREEN}==>{END} Installation finished !")
-            
-    file.close()
+    
    
 def installed_aur_pkgs():
     print(f"{CYAN}==>{END} Reading nob's DB...")
     packages = []
     # reading db file + Adding Packages in packages var 
-    with open('db.txt', 'r') as file:
+    with open('/usr/bin/nob_db.txt', 'r') as file:
         for lign in file.readlines():
             pckg_name, pckg_ver = lign.strip().split()
             packages.append({
@@ -304,7 +326,7 @@ def download_find_pkg(pkg):
 def AUR_upgr():
     packages = []
     # reading db file + Adding Packages in packages var 
-    with open('db.txt', 'r') as file:
+    with open('/usr/bin/nob_db.txt', 'r') as file:
         for lign in file.readlines():
             pckg_name, pckg_ver = lign.strip().split()
             packages.append({
