@@ -8,6 +8,7 @@ import os
 import sys
 import random
 from colors import Colors 
+from TUI import TUI
 colors = Colors()
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -16,7 +17,9 @@ def parse_args():
     parser.add_argument("-Sa", action='store_true', required=False, help="Upgrades AUR packages", dest="aur_upgrade")
     parser.add_argument("-Sr", action='store_true', required=False, help="Install a random package from AUR", dest="install_random") # [WARNING] : I am no responsible for any damage caused by this feature, this will download a random package from the AUR.
     parser.add_argument("-Qa", action='store_true', required=False, help="Show all packages installed with nob", dest="show_installed_aur_pkgs")
+    parser.add_argument("--auto-detect", action='store_true', required=False, help="Auto detection for installed AUR packages with another AUR helper", dest="auto_detect")
     parser.add_argument("--noconfirm", action='store_true', required=False, help="No confirmations", dest="noconfirm")
+    parser.add_argument("-arch-update-settings", action='store_true', required=False, help="TUI for arch-update settings", dest="arch_update_settings")
     parser.add_argument("-v", action='store_true', required=False, help="See the current version of nob", dest="nob_version")
     parser.add_argument('-R', type=str, required=False, help=f'Remove a package.',dest="remove")
     parser.add_argument('-Rns', type=str, required=False, help=f'Remove a package.',dest="remove")
@@ -26,7 +29,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.2.3"
+_version = "1.2.4"
 
 args = parse_args()
 Install_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={args.install}"
@@ -45,6 +48,7 @@ if not os.path.exists("/usr/bin/nob_db.txt"):
         subprocess.run(['sudo', 'chmod', '666', '/usr/bin/nob_db.txt'], text=True, capture_output=True) #Allowing user & programs to edit it without root permissions.
     except Exception as e:
         print(f"{colors.RED}==> ERROR{colors.END} : Error while trying to create db file : {e}")
+
 def add_db(pkg, pkg_version):
     #ADD a package to the nobDB with it name & version
     with open('/usr/bin/nob_db.txt', 'r+') as file:
@@ -63,7 +67,25 @@ def add_db(pkg, pkg_version):
         file.truncate()
     file.close()
 
+def detect_pkgs():
+    print(f"{colors.CYAN}==>{colors.END} Detecting installed AUR packages with other AUR helpers...")
+    cmd = subprocess.run(['pacman', '-Q'], text=True, stdout=subprocess.PIPE)
+    aur_packages = get_aur_packages_list()
+    for line in cmd.stdout.splitlines(): 
+        pkg_name = line.split()[0]
+        pkg_ver = line.split()[1]
+        if pkg_name in aur_packages:
+            print(f"{colors.GREEN}==>{colors.END} Detected AUR package : {pkg_name}/{pkg_ver}.")
+            add_db(pkg_name, pkg_ver)
+    print(f"{colors.GREEN}==>{colors.END} Detection completed.")
+    
+
 def main():
+    if args.auto_detect:
+        detect_pkgs()
+    if args.arch_update_settings:
+        arch_update_timer()
+        return
     if args.install_random:
         choose_random_pkg()
         return
@@ -85,15 +107,21 @@ def main():
     if not args.install:
         #Check if 'arch-update' dependency is installed, if not, updating with pacman.
         def upt_pacman():
-            r = subprocess.run(['sudo', 'pacman', '-Syu'], text=True, stdout=True)
-            if not r.returncode == 0:
-                print(f"{colors.RED}==> ERROR{colors.END} : Error while updating the system.")
-                return
+            try:
+                r = subprocess.run(['sudo', 'pacman', '-Syu'], text=True, stdout=True)
+                if not r.returncode == 0:
+                    print(f"{colors.RED}==> ERROR{colors.END} : Error while updating the system.")
+                    return
+            except KeyboardInterrupt:
+                print(f"\n{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
         print(f"{colors.CYAN}==>{colors.END} Running arch-update script...")
         try:
-            subprocess.run(['arch-update'], text=True, stdout=True)
-        except :
-            print(f"{colors.YELLOW}==> WARNING{colors.END} : Error. Running 'pacman -Syu instead'...")
+            r = subprocess.run(['arch-update'], text=True, stdout=True)
+        except KeyboardInterrupt:
+            print(f"\n{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
+            return
+        except FileNotFoundError:
+            print(f"{colors.YELLOW}==> WARNING{colors.END} : Arch-update not found. Running 'pacman -Syu' instead...")
             upt_pacman()
             return
         return
@@ -128,7 +156,7 @@ def get_aur_packages_list():
         r = subprocess.run("curl --retry 3 -s -o /tmp/packages.gz https://aur.archlinux.org/packages.gz", shell=True, text=True, stdout=subprocess.PIPE)
         r = subprocess.run(["gunzip", "-f", "/tmp/packages.gz"],text=True, stdout=subprocess.PIPE)
         if not r.returncode == 0:
-            print(f"{colors.RED}==> ERROR{colors.END} : Error while fetching AUR packages list.")
+            print(f"{colors.RED}==> ERROR{colors.END} : Error while fetching AUR packages list. Please try again.")
             return
     r = subprocess.run(["cat", "/tmp/packages"],text=True, stdout=subprocess.PIPE)
     for _, line in enumerate(r.stdout.splitlines()): packages.append(line.split()[0])
@@ -208,9 +236,9 @@ def install_pckg(pkg_version, pkg):
     if not r.returncode == 0:
         print(f"{colors.YELLOW}==> WARNING{colors.END} : Missing dependencies, Installing them...")
         if not args.noconfirm :
-            os.system("sudo pacman -S base-devel fakeroot debugedit")
+            os.system("sudo pacman -S base-devel fakeroot debugedit --asdeps")
         else :
-            os.system("sudo pacman -S --noconfirm base-devel fakeroot debugedit")
+            os.system("sudo pacman -S --noconfirm base-devel fakeroot debugedit --asdeps")
 
     print(f"{colors.CYAN}==>{colors.END} Going to ./{pkg} directory...")
     try:
@@ -224,8 +252,10 @@ def install_pckg(pkg_version, pkg):
             print("Skipping...")
         else : 
             os.system("cat ./PKGBUILD")
-            input(f"{colors.BOLD}==>{colors.END} Press any key to continue installation. ")
-        
+            try: 
+                input(f"{colors.BOLD}==>{colors.END} Press any key to continue installation.\nCTRL+C to cancel installation.\n")
+            except KeyboardInterrupt:
+                return clean(pkg)
 
     print(f"{colors.CYAN}==>{colors.END} Executing makepkg")
     #os.system("makepkg -si")
@@ -267,6 +297,7 @@ def installed_aur_pkgs():
         pkg_name = package['pckg_name']
         pkg_ver =  package['pckg_ver']
         print(f"    {colors.GREEN}==>{colors.END} {pkg_name}/{pkg_ver}")
+
 def find_pkg(pkg):
     d_Find_URL = f"https://aur.archlinux.org/rpc/v5/search/{pkg}"
     try : 
@@ -320,6 +351,7 @@ def download_find_pkg(pkg):
 
 def AUR_upgr():
     packages = []
+    packages_to_update = []
     # reading db file + Adding Packages in packages var 
     with open('/usr/bin/nob_db.txt', 'r') as file:
         for lign in file.readlines():
@@ -337,8 +369,8 @@ def AUR_upgr():
                 data = response.read().decode("utf-8")
                 rep = json.loads(data)
         except Exception as e:
-            print(f"{colors.RED}==> ERROR{colors.END} : Cannot connect to AUR, {e}")
-            return
+            print(f"{colors.RED}==> ERROR{colors.END} : Error while attempting to find {pkg_name}, {e}")
+            continue
         try : 
             pkg_version = rep['results'][0]['Version']
             result_name = rep['results'][0]['Name']
@@ -346,18 +378,56 @@ def AUR_upgr():
             print(f"{colors.RED}==> ERROR{colors.END} : DATABASE corrupted. Manual repair needed (PACKAGE {pkg_name} found in database but not in AUR).")
             return
         if pkg_version != package['pckg_ver']:
-            print(f"{colors.CYAN}==>{colors.END} Available update found : {pkg_name}{colors.RED}{package['pckg_ver']}{colors.END} ==> {pkg_name}{colors.GREEN}{pkg_version}{colors.END}.")
-            if not args.noconfirm:
-                ask = input(f"{colors.BOLD}==> ASK{colors.END} : Do you want to update {pkg_name} ? Y/n : ")
-                if ask == 'n':
-                    print(f"\n{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
-                    return
-            print(result_name, pkg_version)
-            download_pckg(result_name, pkg_version)
+            print(f"{colors.CYAN}==>{colors.END} Available update found : {pkg_name}/{colors.RED}{package['pckg_ver']}{colors.END} ==> {pkg_name}/{colors.GREEN}{pkg_version}{colors.END}.")
+            packages_to_update.append({
+                "result_name": result_name,
+                "pkg_version": pkg_version
+            })
+    if not args.noconfirm:
+        ask = input(f"{colors.BOLD}==>{colors.END} Do you want update ? Y/n : ")
+        if ask == "n":
+            print(f"{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
+            return
+    for pkg in packages_to_update:
+        print(pkg["result_name"], pkg["pkg_version"])
+        download_pckg(pkg["result_name"], pkg["pkg_version"])
+    
             
                 
                     
     print(f"{colors.CYAN}==>{colors.END} No available updates found.")
     return
+
+def arch_update_timer() :
+    r = subprocess.run(['pacman', '-Q', 'arch-update'], text=True)
+    if not r.returncode == 0:
+        print(f"{colors.RED}==> ERROR{colors.END} : 'arch-update package not found. Run 'nob -S arch-update' to fix it.")
+        return
+    tui = TUI()
+    time, status = tui.timer, tui.disabled
+    if status:
+        r = subprocess.run(['systemctl', '--user', 'disable', '--now', 'arch-update.timer'], text=True)
+        return
+    if not r.returncode == 0:
+        print(f"{colors.RED}==> ERROR{colors.END} : Error while enabling arch-update.timer.")
+        return
+    print(f"{colors.CYAN}==>{colors.END} Editing arch-update's timer to {time} minutes... && enabling it...")
+    r = subprocess.run(['systemctl', '--user', 'enable', '--now', 'arch-update.timer'], text=True)
+    if not r.returncode == 0:
+        print(f"{colors.RED}==> ERROR{colors.END} : Error while enabling arch-update.timer.")
+        return
+    user = os.getlogin()
+    with open(f"/home/{user}/.config/systemd/user/timers.target.wants/arch-update.timer", "r") as f:
+        lines = f.readlines()
+
+    with open(f"/home/{user}/.config/systemd/user/timers.target.wants/arch-update.timer", "w") as f:
+        for line in lines:
+            if "OnUnitActiveSec" in line:
+                f.write(f"OnUnitActiveSec={time}m\n")
+            else:
+                f.write(line)
+    os.system("arch-update --tray --enable")
+    print(f"{colors.GREEN}==>{colors.END} arch-update.timer successfully edited to {time} minutes.")
+    f.close()
 
 main()
