@@ -14,6 +14,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-S", type=str, required=False, help=f"Install a package from AUR" ,dest="install")
     parser.add_argument("-Ss", type=str, required=False, help=f"Search a package from AUR" ,dest="search")
+    parser.add_argument("-Sb", type=str, required=False, help=f"Build a package (but not installing it.)" ,dest="build")
     parser.add_argument("-Sa", action='store_true', required=False, help="Upgrades AUR packages", dest="aur_upgrade")
     parser.add_argument("-Sr", action='store_true', required=False, help="Install a random package from AUR", dest="install_random") # [WARNING] : I am no responsible for any damage caused by this feature, this will download a random package from the AUR.
     parser.add_argument("-Qa", action='store_true', required=False, help="Show all packages installed with nob", dest="show_installed_aur_pkgs")
@@ -29,12 +30,13 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.2.4"
+_version = "1.2.5"
 
 args = parse_args()
 Install_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={args.install}"
 pckg_archive = f"{args.install}.git"
-
+folder = f"/home/{os.getlogin()}"
+os.chdir(folder)
 #Check is running as root
 if os.geteuid() == 0: print(f"{colors.YELLOW}==> WARNING{colors.END} : Please avoid running nob as root / sudo. Some commands may not work as expected.")
 
@@ -49,24 +51,6 @@ if not os.path.exists("/usr/bin/nob_db.txt"):
     except Exception as e:
         print(f"{colors.RED}==> ERROR{colors.END} : Error while trying to create db file : {e}")
 
-def add_db(pkg, pkg_version):
-    #ADD a package to the nobDB with it name & version
-    with open('/usr/bin/nob_db.txt', 'r+') as file:
-        lines = file.readlines()
-        found = False
-        for i, line in enumerate(lines):
-            if line.strip() and line.split()[0] == pkg:
-                lines[i] = f"{pkg} {pkg_version}\n"
-                found = True
-                break
-        if not found:
-            lines.append(f"{pkg} {pkg_version}\n")
-            
-        file.seek(0)
-        file.writelines(lines)
-        file.truncate()
-    file.close()
-
 def detect_pkgs():
     print(f"{colors.CYAN}==>{colors.END} Detecting installed AUR packages with other AUR helpers...")
     cmd = subprocess.run(['pacman', '-Q'], text=True, stdout=subprocess.PIPE)
@@ -78,9 +62,37 @@ def detect_pkgs():
             print(f"{colors.GREEN}==>{colors.END} Detected AUR package : {pkg_name}/{pkg_ver}.")
             add_db(pkg_name, pkg_ver)
     print(f"{colors.GREEN}==>{colors.END} Detection completed.")
+
+def build_only():
+    result = download_find_pkg(args.build)
+    if result == None: return
+    _, pkg_popularity = result
+    if pkg_popularity <= 2:
+        print(f"{colors.YELLOW}==> WARNING{colors.END} : This package popularity is LOW ({pkg_popularity}), this may be an indesirable program.)")
+    if not args.noconfirm : 
+        ask = input(f"{colors.BOLD}==>{colors.END} Do you want to continue ? Y/n : ")
+        if ask.lower() == "n":
+            print(f"{colors.RED}==> CANCELED{colors.END} : Build Canceled.")
+            return
+    download_pckg(args.build)
+    os.chdir(f"./{args.build.lower()}")
+    r = subprocess.run(['makepkg', '-s'], text=True, stdout=True)
+    if not r.returncode == 0:
+        print(f"{colors.RED}==> ERROR{colors.END} : Error while running makepkg. \n{r.stdout}")
+        if not args.noconfirm : 
+            ask = input(f"{colors.BOLD}==>{colors.END} Do you want to clean build ? Y/n : ")
+            if ask.lower() == "n":
+                return
+        clean(args.build)
+        return
     
+    print(f"{colors.GREEN}==>{colors.END} Package {args.build} successfully built.")
+
 
 def main():
+    if args.build:
+        build_only()
+        return
     if args.auto_detect:
         detect_pkgs()
     if args.arch_update_settings:
@@ -108,13 +120,13 @@ def main():
         #Check if 'arch-update' dependency is installed, if not, updating with pacman.
         def upt_pacman():
             try:
-                r = subprocess.run(['sudo', 'pacman', '-Syu'], text=True, stdout=True)
+                if not args.noconfirm: r = subprocess.run(['sudo', 'pacman', '-Syu'], text=True, stdout=True)
+                else : r = subprocess.run(['sudo', 'pacman', '-Syu', '--noconfirm'], text=True, stdout=True)
                 if not r.returncode == 0:
                     print(f"{colors.RED}==> ERROR{colors.END} : Error while updating the system.")
                     return
             except KeyboardInterrupt:
                 print(f"\n{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
-        print(f"{colors.CYAN}==>{colors.END} Running arch-update script...")
         try:
             r = subprocess.run(['arch-update'], text=True, stdout=True)
         except KeyboardInterrupt:
@@ -142,12 +154,102 @@ def main():
             print(f"{colors.YELLOW}==> WARNING{colors.END} : {args.install} is already installed. If you continue the installation, this package will be reinstalled.")
         if not args.noconfirm : 
             ask = input(f"{colors.BOLD}==>{colors.END} Do you want to continue installation ? Y/n : ")
-            if ask == "n":
+            if ask.lower() == "n":
                 print(f"{colors.RED}==> CANCELED{colors.END} : Installation Canceled.")
                 return
             
-        download_pckg(args.install, pkg_version)
+        download_pckg(args.install); install_pckg(pkg_version, args.install)
+
+def download_find_pkg(pkg):
+    d_Find_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={pkg}"
+    try : 
+        with urllib.request.urlopen(f"{d_Find_URL}") as response:
+            data = response.read().decode("utf-8")
+            rep = json.loads(data)
+        if not rep['results'][0]['URLPath']:
+            print(f"{colors.RED}==> ERROR{colors.END} : Cannot find package {pkg} on AUR.")
+            return None
+    except Exception:
+        print(f"{colors.RED}==> ERROR{colors.END} : Cannot find package {pkg} on AUR.")
+        return None
+    #get basic info
+    pkg_version = rep['results'][0]['Version']; pkg_maintainer = rep['results'][0]['Maintainer']; pkg_popularity = rep['results'][0]['Popularity']
+    print(f"{colors.GREEN}==>{colors.END} Package found for query : {pkg}/{pkg_version} by {pkg_maintainer} .\n")
+    return pkg_version, pkg_popularity
+
+def download_pckg(pkg):
+    if not os.path.exists(f"./{pkg.lower()}"):
+        download_path = str(f"https://aur.archlinux.org/{pkg}.git")
+        print(f"{colors.CYAN}==>{colors.END} Cloning {pkg}'s repository...")
+        r = subprocess.run(['pacman', '-Q' , 'git'], text=True, capture_output=True)
+        if not r.returncode == 0:
+            print(f"{colors.RED}==> ERROR{colors.END} : Missing package 'git'")
+            return
+
+        r = subprocess.run(['git', 'clone' , download_path], text=True, stdout=subprocess.PIPE)
+        if not r.returncode == 0:
+            print(f"{colors.RED}==> ERROR{colors.END} : Error while cloning {pkg}'s repository.\n{r.stdout}")
+            return
+    else : 
+        print(f"{colors.YELLOW}==> WARNING{colors.END} : Directory ./{pkg} already exists.")
+        
+def install_pckg(pkg_version, pkg):
+    print(f"{colors.CYAN}==>{colors.END} Going to ./{pkg} directory...")
+    try:
+        os.chdir(f"./{pkg.lower()}")
+    except Exception as e:
+        print(f"{colors.RED}==> ERROR{colors.END} : cannot find ./{pkg}.")
+        return
+    if not args.noconfirm :
+        ask = input(f"{colors.BOLD}==>{colors.END} Do you want to read PKGBUILD ? Y/n : ")
+        
+        if ask.lower() == 'y' or ask == '': 
+            os.system("cat ./PKGBUILD")
+            try: 
+                input(f"{colors.BOLD}==>{colors.END} Press any key to continue installation.\nCTRL+C to cancel installation.\n")
+            except KeyboardInterrupt:
+                return clean(pkg)
+
+    print(f"{colors.CYAN}==>{colors.END} Executing makepkg")
+    if not args.noconfirm:
+        r = subprocess.run(['makepkg', '-si'], text=True, stdout=True)
+    else :
+        r = subprocess.run(['makepkg', '-si', '--noconfirm'], text=True, stdout=True)
+    if not r.returncode == 0:
+        print(f"{colors.RED}==> ERROR{colors.END} : Error while running makepkg. \n{r.stdout}")
+        clean(pkg)
+        return
+    clean(pkg)
+    #Add the pkg to db (if already exit, editing it with new version)
+    add_db(pkg, pkg_version)
+
+def add_db(pkg, pkg_version):
+    #ADD a package to the nobDB with it name & version
+    with open('/usr/bin/nob_db.txt', 'r+') as file:
+        lines = file.readlines()
+        found = False
+        for i, line in enumerate(lines):
+            if line.strip() and line.split()[0] == pkg:
+                lines[i] = f"{pkg} {pkg_version}\n"
+                found = True
+                break
+        if not found:
+            lines.append(f"{pkg} {pkg_version}\n")
             
+        file.seek(0)
+        file.writelines(lines)
+        file.truncate()
+    file.close()
+
+def clean(pkg):
+    print(f"{colors.CYAN}==>{colors.END} Cleaning installation...")
+    os.chdir("../")
+    try:
+        os.system(f"sudo rm -rf ./{pkg.lower()}")
+    except Exception as e:
+        print(f"{colors.RED}==> ERROR{colors.END} : Error while cleaning :{e}.")
+        return
+
 def get_aur_packages_list():
     packages = []
     #Downloading && extacting packages list from AUR
@@ -167,11 +269,11 @@ def choose_random_pkg():
     pkg = random.choice(packages)
     print(f"{colors.CYAN}==>{colors.END} Randomly selected package : {pkg} [{len(packages)} packages available on AUR]")
     ask = input(f"{colors.RED}==> WARNING{colors.END} This feature will download & install a {colors.RED}RANDOM{colors.END} package from the AUR.\n{colors.YELLOW}This feature may break your system / install undesirable software.\nThe author of NOB is not responsible for any damage caused by this feature.{colors.END}\n{colors.BOLD}==>{colors.END} Are you sure you want to proceed ? y/N : ")
-    if ask != "y":
+    if ask.lower() != "y":
         print(f"{colors.RED}==> CANCELED{colors.END} : Installation Canceled.")
         return
     pkg_version = download_find_pkg(pkg)
-    download_pckg(pkg, pkg_version)
+    download_pckg(pkg); install_pckg(pkg_version, pkg)
     
 def remove_pckg():
     #Checking flags -> if '-R', '-Rs'....
@@ -182,22 +284,16 @@ def remove_pckg():
     if '-Rs' in sys.argv: flag = '-Rs'
     if '-Rn' in sys.argv:flag = '-Rn'
     #Removing package.
-    print(f"{colors.CYAN}==>{colors.END} Executing pacman...")
+
     r = subprocess.run(['pacman', '-Q' , args.remove], text=True, capture_output=True)
     if not r.returncode == 0:
         print(f"{colors.RED}==> ERROR{colors.END} : Cannot delete {args.remove} because it isn't installed yet. ")
         return
-    try:
-        if not args.noconfirm:
-            ask = input(f"{colors.BOLD}==>{colors.END} Do you want to remove {args.remove} ? Y/n : ")
-            if ask == "n":
-                print(f"{colors.RED}==> CANCELED{colors.END} : Uninstallation Canceled.")
-                return
-    except KeyboardInterrupt:
-        print(f"\n{colors.RED}==> CANCELED{colors.END} : Uninstallation Canceled.")
-        return
     print(f"{colors.CYAN}==>{colors.END} Removing {args.remove}...")
-    r = subprocess.run(['sudo', 'pacman', '--noconfirm', flag, args.remove], text=True, stdout=True)
+    if not args.noconfirm:
+        r = subprocess.run(['sudo', 'pacman', flag, args.remove], text=True, stdout=True)
+    else:
+        r = subprocess.run(['sudo', 'pacman', '--noconfirm', flag, args.remove], text=True, stdout=True)
     if not r.returncode == 0:
         print(f"{colors.RED}==> ERROR{colors.END} : An error has occured while deleting the package {args.remove}.")
         return
@@ -209,77 +305,7 @@ def remove_pckg():
             if args.remove not in line.strip("\n"):
                 f.write(line)
     f.close()
-    
-def download_pckg(pkg, pkg_version):
-    download_path = str(f"https://aur.archlinux.org/{pkg}.git")
-    print(f"{colors.CYAN}==>{colors.END} Cloning {pkg}'s repository...")
-    r = subprocess.run(['pacman', '-Q' , 'git'], text=True, capture_output=True)
-    if not r.returncode == 0:
-        print(f"{colors.RED}==> ERROR{colors.END} : Missing package 'git'")
-        return
-    try :
-        os.system(f"sudo rm -rf {pckg_archive}")
-    except OSError as e:
-        if not e.errno == 2:
-            print(f"{colors.RED}==> ERROR{colors.END} : Cannot delete existing package .tar.gz : {e}")
-    try:
-        subprocess.run(['git', 'clone' , download_path], text=True, capture_output=True)
-    except Exception as e:
-        print(f"{colors.RED}==> ERROR {colors.END} : {e}.")
-        return
-
-    install_pckg(pkg_version, pkg)
-
-def install_pckg(pkg_version, pkg):
-    print(f"{colors.CYAN}==>{colors.END} Checking required dependencies for makepkg...")
-    r = subprocess.run(['pacman', '-Q', 'fakeroot', 'debugedit', 'base-devel'], capture_output=True, text=True)
-    if not r.returncode == 0:
-        print(f"{colors.YELLOW}==> WARNING{colors.END} : Missing dependencies, Installing them...")
-        if not args.noconfirm :
-            os.system("sudo pacman -S base-devel fakeroot debugedit --asdeps")
-        else :
-            os.system("sudo pacman -S --noconfirm base-devel fakeroot debugedit --asdeps")
-
-    print(f"{colors.CYAN}==>{colors.END} Going to ./{pkg} directory...")
-    try:
-        os.chdir(f"./{pkg.lower()}")
-    except Exception as e:
-        print(f"{colors.RED}==> ERROR{colors.END} : cannot find ./{pkg}.")
-        return
-    if not args.noconfirm :
-        ask = input(f"{colors.BOLD}==>{colors.END} Do you want to read PKGBUILD ? Y/n : ")
-        if ask == "n":
-            print("Skipping...")
-        else : 
-            os.system("cat ./PKGBUILD")
-            try: 
-                input(f"{colors.BOLD}==>{colors.END} Press any key to continue installation.\nCTRL+C to cancel installation.\n")
-            except KeyboardInterrupt:
-                return clean(pkg)
-
-    print(f"{colors.CYAN}==>{colors.END} Executing makepkg")
-    #os.system("makepkg -si")
-    if not args.noconfirm:
-        r = subprocess.run(['makepkg', '-si'], text=True, stdout=True)
-    else :
-        r = subprocess.run(['makepkg', '-si', '--noconfirm'], text=True, stdout=True)
-    if not r.returncode == 0:
-        print(f"{colors.RED}==> ERROR{colors.END} : Error while running makepkg. \n{r.stdout}")
-        clean(pkg)
-        return
-    clean(pkg)
-    #Add the pkg to db (if already exit, editing it with new version)
-    add_db(pkg, pkg_version)
-
-def clean(pkg):
-    print(f"{colors.CYAN}==>{colors.END} Cleaning installation...")
-    os.chdir("../")
-    try:
-        os.system(f"sudo rm -rf ./{pkg.lower()}")
-    except Exception as e:
-        print(f"{colors.RED}==> ERROR{colors.END} : Error while cleaning :{e}.")
-        return
-        
+           
 def installed_aur_pkgs():
     print(f"{colors.CYAN}==>{colors.END} Reading nob's DB...")
     packages = []
@@ -319,35 +345,16 @@ def find_pkg(pkg):
         print(f"{colors.RED}==>{colors.END} More than {colors.BOLD}{max_results}{colors.END} results found for {pkg}. Skipping {colors.BOLD}{results - max_results}{colors.END} Results.")
         if not args.noconfirm:
             ask = input(f"{colors.BOLD}==>{colors.END} Do you want to see them anyways ? y/N : ")
-            if ask == "y":
+            if ask.lower() == "y":
                 max_results = results
     for i in range(0, results):
         if i > max_results:
             return 1
-        pkg_name = rep['results'][i]['Name']
-        pkg_version = rep['results'][i]['Version']
-        pkg_maintainer = rep['results'][i]['Maintainer']
-        pkg_popularity = rep['results'][i]['Popularity']
+        #get basic info
+        pkg_name = rep['results'][i]['Name']; pkg_version = rep['results'][i]['Version']; pkg_maintainer = rep['results'][i]['Maintainer']; pkg_popularity = rep['results'][i]['Popularity']
+        
         print(f"{colors.GREEN}==>{colors.END} Package found : {pkg_name}/{pkg_version} by {pkg_maintainer} (Pop : {pkg_popularity})")
     return 1
-
-def download_find_pkg(pkg):
-    d_Find_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={pkg}"
-    try : 
-        with urllib.request.urlopen(f"{d_Find_URL}") as response:
-            data = response.read().decode("utf-8")
-            rep = json.loads(data)
-        if not rep['results'][0]['URLPath']:
-            print(f"{colors.RED}==> ERROR{colors.END} : Cannot find package {pkg} on AUR.")
-            return None
-    except Exception as e:
-        print(f"{colors.RED}==> ERROR{colors.END} : Cannot find package {pkg} on AUR.")
-        return None
-    pkg_version = rep['results'][0]['Version']
-    pkg_maintainer = rep['results'][0]['Submitter']
-    pkg_popularity = rep['results'][0]['Popularity']
-    print(f"{colors.GREEN}==>{colors.END} Package found for query : {pkg}/{pkg_version} by {pkg_maintainer} .\n")
-    return pkg_version, pkg_popularity
 
 def AUR_upgr():
     packages = []
@@ -368,8 +375,8 @@ def AUR_upgr():
             with urllib.request.urlopen(f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={pkg_name}") as response:
                 data = response.read().decode("utf-8")
                 rep = json.loads(data)
-        except Exception as e:
-            print(f"{colors.RED}==> ERROR{colors.END} : Error while attempting to find {pkg_name}, {e}")
+        except Exception:
+            print(f"{colors.RED}==> ERROR{colors.END} : Error while attempting to find {pkg_name}.")
             continue
         try : 
             pkg_version = rep['results'][0]['Version']
@@ -383,22 +390,21 @@ def AUR_upgr():
                 "result_name": result_name,
                 "pkg_version": pkg_version
             })
-    if not args.noconfirm:
-        ask = input(f"{colors.BOLD}==>{colors.END} Do you want update ? Y/n : ")
-        if ask == "n":
-            print(f"{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
-            return
-    for pkg in packages_to_update:
-        print(pkg["result_name"], pkg["pkg_version"])
-        download_pckg(pkg["result_name"], pkg["pkg_version"])
     
-            
-                
-                    
-    print(f"{colors.CYAN}==>{colors.END} No available updates found.")
-    return
+    if len(packages_to_update) > 0:
+        if not args.noconfirm:
+            ask = input(f"{colors.BOLD}==>{colors.END} Do you want update ? Y/n : ")
+            if ask.lower() == "n":
+                print(f"{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
+                return
+        for pkg in packages_to_update:
+            print(pkg["result_name"], pkg["pkg_version"])
+            download_pckg(pkg["result_name"]); install_pckg(pkg["pkg_version"], pkg["result_name"])
+    
+    else: print(f"{colors.CYAN}==>{colors.END} No available updates found."); return
 
 def arch_update_timer() :
+    print("Do not run this at root / sudo.")
     r = subprocess.run(['pacman', '-Q', 'arch-update'], text=True)
     if not r.returncode == 0:
         print(f"{colors.RED}==> ERROR{colors.END} : 'arch-update package not found. Run 'nob -S arch-update' to fix it.")
@@ -417,6 +423,7 @@ def arch_update_timer() :
         print(f"{colors.RED}==> ERROR{colors.END} : Error while enabling arch-update.timer.")
         return
     user = os.getlogin()
+    os.system(f"sudo chown {user}:{user} /home/{user}/.config/systemd/user/timers.target.wants/arch-update.timer")
     with open(f"/home/{user}/.config/systemd/user/timers.target.wants/arch-update.timer", "r") as f:
         lines = f.readlines()
 
