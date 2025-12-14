@@ -11,12 +11,10 @@ class TUI():
             title = "=> NOB - Arch-Update settings [INDEV] <="
             title_width = (width // 2) - len(title) // 2
 
-            
-
             win = newwin(height, width, 0, 0)
             win.box()
 
-            options = [f"==> Change Arch-update timer check", f"==> Disable arch-update.timer","press Q to quit"]
+            options = [f"==> Change Arch-update timer check", f"==> Disable arch-update.timer","press Q to quit [save changes]"]
             win.addstr(0, title_width, title, A_BOLD)
             for i, option in enumerate(options): win.addstr(i + 1, 2, f"  {option}")
             win.refresh()
@@ -67,6 +65,8 @@ class TUI():
                         win.addstr(5, 1, f"Arch-update.timer is now {status} ")
                         win.refresh()
                         update()
+                else:
+                    update()
                 win.refresh()
             win.clear()
             win.refresh()
