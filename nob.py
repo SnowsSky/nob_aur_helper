@@ -32,7 +32,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.3.0-dev1"
+_version = "1.3.0"
 
 args = parse_args()
 Install_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={args.install}"
