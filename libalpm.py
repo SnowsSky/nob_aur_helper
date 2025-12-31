@@ -6,7 +6,6 @@ from colors import Colors
 import tempfile
 colors = Colors()
 class alpm:
-    
     @staticmethod
     def a(tmpdir):
         global pacdb
@@ -49,7 +48,6 @@ class alpm:
     print(pyalpm.version())
         
     def update(noconfirm = False):
-        #handle = alpm.handle
         localdb = alpm.localdb
         print(f"{colors.CYAN}==>{colors.END} Syncing databases. Please wait.")
         for db in pacdb.get_syncdbs():
@@ -58,7 +56,6 @@ class alpm:
             except pyalpm.error as e:
                 print(f"{colors.RED}==> ERROR{colors.END} : Error while syncing databases : {e}")
                 return
-        #subprocess.run(['sudo', 'pacman', '-Sy' ], text=True, capture_output=True)
         download_size = 0
         install_size = 0
         for db in pacdb.get_syncdbs():
@@ -70,7 +67,6 @@ class alpm:
                 local_pkg = localdb.get_pkg(pkg.name)
                 if not local_pkg: continue
                 if pyalpm.vercmp(pkg.version, local_pkg.version) > 0:
-                #if local_pkg and pkg.version != local_pkg.version:
                     for conflict_name in pkg.conflicts:
                         conflict_pkg = localdb.get_pkg(conflict_name)
                         if conflict_pkg:
@@ -84,7 +80,6 @@ class alpm:
         if download_size <= 0:
             print(f"{colors.PURPLE}==>{colors.END} There is nothing to do"); return
                     
-    
         print(f"{colors.CYAN}==>{colors.END} Estimated download size : {download_size / (1024 * 1024):.2f} MiB")
         print(f"{colors.CYAN}==>{colors.END} Estimated Net Upgrade Size  : {install_size / (1024 * 1024):.2f} MiB")
         if not noconfirm: 
