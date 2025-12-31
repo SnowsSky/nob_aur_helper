@@ -6,6 +6,8 @@ import urllib.request
 import subprocess
 import os 
 import sys
+from db import Database
+import libalpm
 import random
 from colors import Colors 
 from TUI import TUI
@@ -30,7 +32,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.2.5"
+_version = "1.3.0"
 
 args = parse_args()
 Install_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={args.install}"
@@ -40,27 +42,14 @@ os.chdir(folder)
 #Check is running as root
 if os.geteuid() == 0: print(f"{colors.YELLOW}==> WARNING{colors.END} : Please avoid running nob as root / sudo. Some commands may not work as expected.")
 
-#Create DB file if not found
-if not os.path.exists("/usr/bin/nob_db.txt"):
-    try:
-        r = subprocess.run(['sudo', 'touch', '/usr/bin/nob_db.txt' ], text=True, capture_output=True)
-        if not r.returncode == 0:
-            print(f"{colors.RED}==> ERROR{colors.END} : Error while trying to create db file")
-            pass
-        subprocess.run(['sudo', 'chmod', '666', '/usr/bin/nob_db.txt'], text=True, capture_output=True) #Allowing user & programs to edit it without root permissions.
-    except Exception as e:
-        print(f"{colors.RED}==> ERROR{colors.END} : Error while trying to create db file : {e}")
-
 def detect_pkgs():
     print(f"{colors.CYAN}==>{colors.END} Detecting installed AUR packages with other AUR helpers...")
-    cmd = subprocess.run(['pacman', '-Q'], text=True, stdout=subprocess.PIPE)
+    pkgs = libalpm.alpm.getpkgslist()
     aur_packages = get_aur_packages_list()
-    for line in cmd.stdout.splitlines(): 
-        pkg_name = line.split()[0]
-        pkg_ver = line.split()[1]
+    for pkg_name, pkg_ver in pkgs.items():
         if pkg_name in aur_packages:
             print(f"{colors.GREEN}==>{colors.END} Detected AUR package : {pkg_name}/{pkg_ver}.")
-            add_db(pkg_name, pkg_ver)
+            Database.add_db(pkg_name, pkg_ver)
     print(f"{colors.GREEN}==>{colors.END} Detection completed.")
 
 def build_only():
@@ -87,7 +76,6 @@ def build_only():
         return
     
     print(f"{colors.GREEN}==>{colors.END} Package {args.build} successfully built.")
-
 
 def main():
     if args.build:
@@ -117,24 +105,16 @@ def main():
         find_pkg(args.search)
         return
     if not args.install:
-        #Check if 'arch-update' dependency is installed, if not, updating with pacman.
-        def upt_pacman():
-            try:
-                if not args.noconfirm: r = subprocess.run(['sudo', 'pacman', '-Syu'], text=True, stdout=True)
-                else : r = subprocess.run(['sudo', 'pacman', '-Syu', '--noconfirm'], text=True, stdout=True)
-                if not r.returncode == 0:
-                    print(f"{colors.RED}==> ERROR{colors.END} : Error while updating the system.")
-                    return
-            except KeyboardInterrupt:
-                print(f"\n{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
+        #Check if 'arch-update' dependency is installed, if not, updating with alpm.
         try:
             r = subprocess.run(['arch-update'], text=True, stdout=True)
         except KeyboardInterrupt:
             print(f"\n{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
             return
         except FileNotFoundError:
-            print(f"{colors.YELLOW}==> WARNING{colors.END} : Arch-update not found. Running 'pacman -Syu' instead...")
-            upt_pacman()
+            print(f"{colors.YELLOW}==> WARNING{colors.END} : Arch-update not found. Using nob instead.")
+            if args.noconfirm : libalpm.alpm.update(True) 
+            else : libalpm.alpm.update()
             return
         return
     
@@ -145,18 +125,18 @@ def main():
         pkg_version, pkg_popularity = result
         if pkg_popularity <= 2:
             print(f"{colors.YELLOW}==> WARNING{colors.END} : This package popularity is LOW ({pkg_popularity}), this may be an indesirable program.)")
-
-        r = subprocess.run(['pacman', '-Q' , args.install], text=True, capture_output=True)
+            if not args.noconfirm : 
+                ask = input(f"{colors.BOLD}==>{colors.END} Do you want to continue installation ? Y/n : ")
+                if ask.lower() == "n":
+                    print(f"{colors.RED}==> CANCELED{colors.END} : Installation Canceled.")
+                    return
+        pkgs = libalpm.alpm.getpkgslist()
         # Add the package into db with installed version, not latest version.
-        if r.returncode == 0:
-            _, installed_pckg_ver = r.stdout.strip().split()
-            add_db(args.install, installed_pckg_ver)
+        if args.install in pkgs:
+            installed_pckg_ver = pkgs[args.install]
+            Database.add_db(args.install, installed_pckg_ver)
             print(f"{colors.YELLOW}==> WARNING{colors.END} : {args.install} is already installed. If you continue the installation, this package will be reinstalled.")
-        if not args.noconfirm : 
-            ask = input(f"{colors.BOLD}==>{colors.END} Do you want to continue installation ? Y/n : ")
-            if ask.lower() == "n":
-                print(f"{colors.RED}==> CANCELED{colors.END} : Installation Canceled.")
-                return
+        
             
         download_pckg(args.install); install_pckg(pkg_version, args.install)
 
@@ -181,11 +161,11 @@ def download_pckg(pkg):
     if not os.path.exists(f"./{pkg.lower()}"):
         download_path = str(f"https://aur.archlinux.org/{pkg}.git")
         print(f"{colors.CYAN}==>{colors.END} Cloning {pkg}'s repository...")
-        r = subprocess.run(['pacman', '-Q' , 'git'], text=True, capture_output=True)
-        if not r.returncode == 0:
-            print(f"{colors.RED}==> ERROR{colors.END} : Missing package 'git'")
-            return
-
+        if not 'git' in libalpm.alpm.getpkgslist():
+            print(f"{colors.RED}==> ERROR{colors.END} : Missing package 'git'.")
+            sys.exit()
+        #r = subprocess.run(['pacman', '-Q' , 'git'], text=True, capture_output=True)
+        #if not r.returncode == 0:
         r = subprocess.run(['git', 'clone' , download_path], text=True, stdout=subprocess.PIPE)
         if not r.returncode == 0:
             print(f"{colors.RED}==> ERROR{colors.END} : Error while cloning {pkg}'s repository.\n{r.stdout}")
@@ -221,25 +201,7 @@ def install_pckg(pkg_version, pkg):
         return
     clean(pkg)
     #Add the pkg to db (if already exit, editing it with new version)
-    add_db(pkg, pkg_version)
-
-def add_db(pkg, pkg_version):
-    #ADD a package to the nobDB with it name & version
-    with open('/usr/bin/nob_db.txt', 'r+') as file:
-        lines = file.readlines()
-        found = False
-        for i, line in enumerate(lines):
-            if line.strip() and line.split()[0] == pkg:
-                lines[i] = f"{pkg} {pkg_version}\n"
-                found = True
-                break
-        if not found:
-            lines.append(f"{pkg} {pkg_version}\n")
-            
-        file.seek(0)
-        file.writelines(lines)
-        file.truncate()
-    file.close()
+    Database.add_db(pkg, pkg_version)
 
 def clean(pkg):
     print(f"{colors.CYAN}==>{colors.END} Cleaning installation...")
@@ -284,10 +246,9 @@ def remove_pckg():
     if '-Rs' in sys.argv: flag = '-Rs'
     if '-Rn' in sys.argv:flag = '-Rn'
     #Removing package.
-
-    r = subprocess.run(['pacman', '-Q' , args.remove], text=True, capture_output=True)
-    if not r.returncode == 0:
+    if not args.remove in libalpm.alpm.getpkgslist():
         print(f"{colors.RED}==> ERROR{colors.END} : Cannot delete {args.remove} because it isn't installed yet. ")
+        Database.remove_db(args.remove)
         return
     print(f"{colors.CYAN}==>{colors.END} Removing {args.remove}...")
     if not args.noconfirm:
@@ -298,31 +259,15 @@ def remove_pckg():
         print(f"{colors.RED}==> ERROR{colors.END} : An error has occured while deleting the package {args.remove}.")
         return
     print(f"{colors.GREEN}==>{colors.END} Package {args.remove} successfully deleted from the system.")
-    with open("/usr/bin/nob_db.txt", "r") as f:
-        lines = f.readlines()
-    with open("/usr/bin/nob_db.txt", "w") as f:
-        for line in lines:
-            if args.remove not in line.strip("\n"):
-                f.write(line)
-    f.close()
+    Database.remove_db(args.remove)
            
 def installed_aur_pkgs():
     print(f"{colors.CYAN}==>{colors.END} Reading nob's DB...")
-    packages = []
-    # reading db file + Adding Packages in packages var 
-    with open('/usr/bin/nob_db.txt', 'r') as file:
-        for lign in file.readlines():
-            pckg_name, pckg_ver = lign.strip().split()
-            packages.append({
-            "pckg_name": pckg_name,
-            "pckg_ver": pckg_ver
-        })
+    packages = Database.read_db()
     nb_packages = len(packages)
     print(f"{colors.GREEN}==>{colors.END} {nb_packages} Package(s) were found installed with nob :")
-    for package in packages:
-        pkg_name = package['pckg_name']
-        pkg_ver =  package['pckg_ver']
-        print(f"    {colors.GREEN}==>{colors.END} {pkg_name}/{pkg_ver}")
+    for pkg_name, pkg_ver in packages:
+        print(f"    {colors.GREEN}==>{colors.END} {pkg_name}@{pkg_ver}")
 
 def find_pkg(pkg):
     d_Find_URL = f"https://aur.archlinux.org/rpc/v5/search/{pkg}"
@@ -357,20 +302,13 @@ def find_pkg(pkg):
     return 1
 
 def AUR_upgr():
-    packages = []
+    packages = Database.read_db()
     packages_to_update = []
     # reading db file + Adding Packages in packages var 
-    with open('/usr/bin/nob_db.txt', 'r') as file:
-        for lign in file.readlines():
-            pckg_name, pckg_ver = lign.strip().split()
-            packages.append({
-            "pckg_name": pckg_name,
-            "pckg_ver": pckg_ver
-        })
+    
     print(f"{colors.CYAN}==>{colors.END} Checking for AUR packages updates...")
     #Check for updates && check if package is on th AUR.
-    for package in packages:
-        pkg_name = package['pckg_name']
+    for pkg_name, pkg_ver in packages:
         try:
             with urllib.request.urlopen(f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={pkg_name}") as response:
                 data = response.read().decode("utf-8")
@@ -384,8 +322,8 @@ def AUR_upgr():
         except Exception:
             print(f"{colors.RED}==> ERROR{colors.END} : DATABASE corrupted. Manual repair needed (PACKAGE {pkg_name} found in database but not in AUR).")
             return
-        if pkg_version != package['pckg_ver']:
-            print(f"{colors.CYAN}==>{colors.END} Available update found : {pkg_name}/{colors.RED}{package['pckg_ver']}{colors.END} ==> {pkg_name}/{colors.GREEN}{pkg_version}{colors.END}.")
+        if pkg_version != pkg_ver:
+            print(f"{colors.CYAN}==>{colors.END} Available update found : {pkg_name}/{colors.RED}{pkg_ver}{colors.END} ==> {pkg_name}/{colors.GREEN}{pkg_version}{colors.END}.")
             packages_to_update.append({
                 "result_name": result_name,
                 "pkg_version": pkg_version
@@ -399,23 +337,23 @@ def AUR_upgr():
                 return
         for pkg in packages_to_update:
             print(pkg["result_name"], pkg["pkg_version"])
+            args.noconfirm = True
             download_pckg(pkg["result_name"]); install_pckg(pkg["pkg_version"], pkg["result_name"])
     
     else: print(f"{colors.CYAN}==>{colors.END} No available updates found."); return
 
 def arch_update_timer() :
     print("Do not run this at root / sudo.")
-    r = subprocess.run(['pacman', '-Q', 'arch-update'], text=True)
-    if not r.returncode == 0:
+    if not 'arch-update' in libalpm.alpm.getpkgslist():
         print(f"{colors.RED}==> ERROR{colors.END} : 'arch-update package not found. Run 'nob -S arch-update' to fix it.")
         return
     tui = TUI()
     time, status = tui.timer, tui.disabled
     if status:
         r = subprocess.run(['systemctl', '--user', 'disable', '--now', 'arch-update.timer'], text=True)
-        return
-    if not r.returncode == 0:
-        print(f"{colors.RED}==> ERROR{colors.END} : Error while enabling arch-update.timer.")
+        if not r.returncode == 0:
+            print(f"{colors.RED}==> ERROR{colors.END} : Error while enabling arch-update.timer.")
+            return
         return
     print(f"{colors.CYAN}==>{colors.END} Editing arch-update's timer to {time} minutes... && enabling it...")
     r = subprocess.run(['systemctl', '--user', 'enable', '--now', 'arch-update.timer'], text=True)
@@ -436,5 +374,5 @@ def arch_update_timer() :
     os.system("arch-update --tray --enable")
     print(f"{colors.GREEN}==>{colors.END} arch-update.timer successfully edited to {time} minutes.")
     f.close()
-
+    
 main()
