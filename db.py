@@ -3,18 +3,9 @@ from colors import Colors
 import os
 import subprocess
 colors = Colors()
-# DB VER 1.0.0
+# DB VER 1.0.0-2
 class Database:
     DBpath = f'/home/{os.getlogin()}/nob_db.db'
-    """ if not os.path.exists(DBpath):
-        try:
-            r = subprocess.run(['sudo', 'touch', DBpath ], text=True, capture_output=True)
-            if not r.returncode == 0:
-                print(f"{colors.RED}==> ERROR{colors.END} : Error while trying to create db file")
-                pass
-            subprocess.run(['sudo', 'chmod', '666', DBpath], text=True, capture_output=True) #Allowing user & programs to edit it without root permissions.
-        except Exception as e:
-            print(f"{colors.RED}==> ERROR{colors.END} : Error while trying to create db file : {e}")"""
     connection = sqlite3.connect(DBpath)
     cursor = connection.cursor()
     def add_db(pkg : str , pkg_version: str):
@@ -58,7 +49,8 @@ class Database:
             for pkg_name, pkg_ver in rows:
                 pkgs.append((pkg_name, pkg_ver))
             return pkgs
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            print(f"ERROR : {e}")
             return []
         
     def remove_db(pkg : str):
