@@ -41,11 +41,6 @@ class alpm:
         a(Path(tmpdir))
     handle = pyalpm.Handle("/", "/var/lib/pacman")
     localdb = handle.get_localdb()
-    """official_repos = ["core", "extra", "multilib","core-testing", "extra-testing", "multilib-testing"]
-    for repo_name in official_repos:
-        handle.register_syncdb(repo_name, pyalpm.SIG_DATABASE_OPTIONAL)
-    """
-    print(pyalpm.version())
         
     def update(noconfirm = False):
         localdb = alpm.localdb
@@ -96,3 +91,5 @@ class alpm:
         for pkg in localdb.pkgcache:
             pkgs[pkg.name] = pkg.version
         return pkgs
+    
+    def version(): return pyalpm.version()
