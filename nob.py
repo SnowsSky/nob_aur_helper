@@ -36,14 +36,14 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.4.0"
+_version = "1.4.1"
 _pyalpm_version = libalpm.alpm.version()
 
 args = parse_args()
 Install_URL = f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={args.install}"
 pckg_archive = f"{args.install}.git"
 cache_folder = '/var/cache/nob/pkgs/'
-folder = f"/home/{os.getlogin()}"
+folder = f"/tmp/"
 os.chdir(folder)
 #Check is running as root
 if os.geteuid() == 0: print(f"{colors.YELLOW}==> WARNING{colors.END} : Please avoid running nob as root / sudo. Some commands may not work as expected.")
@@ -91,8 +91,6 @@ def build_only():
             move_pkg(pkg)
             print(f"{colors.GREEN}==>{colors.END} Package {pkg} successfully built.")
         
-    
-
 def local_install():
     pkgs = libalpm.alpm.getpkgslist()
     to_install = []; to_reinstall = []
@@ -130,6 +128,7 @@ def main():
         return
     if args.auto_detect:
         detect_pkgs()
+        return
     if args.arch_update_settings:
         arch_update_timer()
         return
@@ -295,11 +294,13 @@ def choose_random_pkg():
     packages = get_aur_packages_list()
     pkg = random.choice(packages)
     print(f"{colors.CYAN}==>{colors.END} Randomly selected package : {pkg} [{len(packages)} packages available on AUR]")
+    
     ask = input(f"{colors.RED}==> WARNING{colors.END} This feature will download & install a {colors.RED}RANDOM{colors.END} package from the AUR.\n{colors.YELLOW}This feature may break your system / install undesirable software.\nThe author of NOB is not responsible for any damage caused by this feature.{colors.END}\n{colors.BOLD}==>{colors.END} Are you sure you want to proceed ? y/N : ")
     if ask.lower() != "y":
         print(f"{colors.RED}==> CANCELED{colors.END} : Installation Canceled.")
         return
-    pkg_version = download_find_pkg(pkg)
+    result = download_find_pkg(pkg, True)
+    pkg_version, _ = result
     download_pckg(pkg); install_pckg(pkg_version, pkg)
     
 def remove_pckg():
@@ -327,15 +328,15 @@ def remove_pckg():
         print(f"{colors.RED}==> ERROR{colors.END} : An error has occured while deleting the package {args.remove}.")
         return
     print(f"{colors.GREEN}==>{colors.END} Package {args.remove} successfully deleted from the system.")
-    for pkg in args.remove : Database.remove_db(args.remove)
+    for pkg in args.remove : Database.remove_db(pkg)
            
 def installed_aur_pkgs():
     print(f"{colors.CYAN}==>{colors.END} Reading nob's DB...")
     packages = Database.read_db()
     nb_packages = len(packages)
-    print(f"{colors.GREEN}==>{colors.END} {nb_packages} Package(s) were found installed with nob :")
     for pkg_name, pkg_ver in packages:
-        print(f"    {colors.GREEN}==>{colors.END} {pkg_name}@{pkg_ver}")
+        print(f"{colors.GREEN}==>{colors.END} {pkg_name}@{pkg_ver}")
+    print(f"{colors.BOLD}==>{colors.END} {nb_packages} Package(s) were found installed with nob.")
 
 def find_pkg(pkg):
     d_Find_URL = f"https://aur.archlinux.org/rpc/v5/search/{pkg}"
@@ -351,10 +352,7 @@ def find_pkg(pkg):
         return 0
     results = int(rep['resultcount'])
     max_results = 100
-    
-    if results <= max_results:
-        print(f"{colors.GREEN}==>{colors.END} {colors.BOLD}{results}{colors.END} results found for {pkg}.")
-    else:
+    if results >= max_results:
         print(f"{colors.RED}==>{colors.END} More than {colors.BOLD}{max_results}{colors.END} results found for {pkg}. Skipping {colors.BOLD}{results - max_results}{colors.END} Results.")
         if not args.noconfirm:
             ask = input(f"{colors.BOLD}==>{colors.END} Do you want to see them anyways ? y/N : ")
@@ -364,9 +362,10 @@ def find_pkg(pkg):
         if i > max_results:
             return 1
         #get basic info
-        pkg_name = rep['results'][i]['Name']; pkg_version = rep['results'][i]['Version']; pkg_maintainer = rep['results'][i]['Maintainer']; pkg_popularity = rep['results'][i]['Popularity']
+        pkg_name = rep['results'][i]['Name']; pkg_version = rep['results'][i]['Version']; pkg_maintainer = rep['results'][i]['Maintainer']; pkg_popularity = rep['results'][i]['Popularity']; pkg_description = rep['results'][i]['Description']
         
-        print(f"{colors.GREEN}==>{colors.END} Package found : {pkg_name}/{pkg_version} by {pkg_maintainer} (Pop : {pkg_popularity})")
+        print(f"{colors.GREEN}==>{colors.END} Package found : {pkg_name}/{pkg_version} by {pkg_maintainer} (Pop : {pkg_popularity})\n{colors.BOLD}:: {colors.END}{pkg_description}")
+    print(f"{colors.BOLD}==>{colors.END} {colors.BOLD}{results}{colors.END} results found for {pkg}.")
     return 1
 
 def AUR_upgr():
