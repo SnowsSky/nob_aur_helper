@@ -36,7 +36,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.4.1"
+_version = "1.4.2"
 _pyalpm_version = libalpm.alpm.version()
 
 args = parse_args()
@@ -55,6 +55,7 @@ def detect_pkgs():
     for pkg_name, pkg_ver in pkgs.items():
         if pkg_name in aur_packages:
             print(f"{colors.GREEN}==>{colors.END} Detected AUR package : {pkg_name}/{pkg_ver}.")
+            #print(pkg_name, pkg_ver)
             Database.add_db(pkg_name, pkg_ver)
     print(f"{colors.GREEN}==>{colors.END} Detection completed.")
 
@@ -206,7 +207,13 @@ def download_find_pkg(pkg, noprint=False):
             rep = json.loads(data)
         if not rep['results'][0]['URLPath']:
             print(f"{colors.RED}==> ERROR{colors.END} : Cannot find package {pkg} on AUR.")
-            return None
+            return
+    except urllib.error.URLError:
+        print(f"{colors.RED}==> ERROR{colors.END} : Unable to reach the AUR.")
+        return 0
+    except IndexError:
+        print(f"{colors.RED}==> ERROR{colors.END} : Package '{pkg}' is not on the AUR.")
+        return 0
     except Exception:
         print(f"{colors.RED}==> ERROR{colors.END} : Cannot find package {pkg} on AUR.")
         return None
@@ -331,9 +338,9 @@ def remove_pckg():
     for pkg in args.remove : Database.remove_db(pkg)
            
 def installed_aur_pkgs():
-    print(f"{colors.CYAN}==>{colors.END} Reading nob's DB...")
     packages = Database.read_db()
     nb_packages = len(packages)
+    if nb_packages <= 0: return print(f"{colors.RED}==> ERROR{colors.END} : 0 AUR package has been found. Maybe try 'nob --auto-detect' ?")
     for pkg_name, pkg_ver in packages:
         print(f"{colors.GREEN}==>{colors.END} {pkg_name}@{pkg_ver}")
     print(f"{colors.BOLD}==>{colors.END} {nb_packages} Package(s) were found installed with nob.")
@@ -345,10 +352,16 @@ def find_pkg(pkg):
             data = response.read().decode("utf-8")
             rep = json.loads(data)
         if not rep['results'][0]['URLPath']:
-            print(f"{colors.RED}==> ERROR{colors.END} : Cannot find result(s) for {pkg} on AUR.")
+            print(f"{colors.RED}==> ERROR{colors.END} : Package ''{pkg}' is not on the AUR.")
             return 0
+    except urllib.error.URLError:
+        print(f"{colors.RED}==> ERROR{colors.END} : Unable to reach the AUR.")
+        return 0
+    except IndexError:
+        print(f"{colors.RED}==> ERROR{colors.END} : Package '{pkg}' is not on the AUR.")
+        return 0
     except Exception as e:
-        print(f"{colors.RED}==> ERROR{colors.END} : Cannot find package result(s) for {pkg} on AUR.")
+        print(f"{colors.RED}==> ERROR{colors.END} : {e}")
         return 0
     results = int(rep['resultcount'])
     max_results = 100
@@ -371,6 +384,7 @@ def find_pkg(pkg):
 def AUR_upgr():
     packages = Database.read_db()
     packages_to_update = []
+    old_pkgs= {}
     # reading db file + Adding Packages in packages var 
     
     print(f"{colors.CYAN}==>{colors.END} Checking for AUR packages updates... [0%] (0/{len(packages)})", end='', flush=True)
@@ -396,12 +410,16 @@ def AUR_upgr():
         if pkg_version != pkg_ver:
             packages_to_update.append({
                 "result_name": result_name,
-                "pkg_version": pkg_version
+                "pkg_version": pkg_ver
             })
+            old_pkgs[result_name] = pkg_version
+    i = 0
     for pkg in packages_to_update:
-        pkg_name = pkg['result_name']; pkg_version = pkg["pkg_version"]
-        print(f"{colors.CYAN}==>{colors.END} {pkg_name}/{colors.RED}{pkg_ver}{colors.END} ==> {pkg_name}/{colors.GREEN}{pkg_version}{colors.END}.")
-    
+        pkg_name= pkg['result_name']; pkg_version = pkg['pkg_version']
+        old_version = old_pkgs[pkg_name]
+        print(f"{colors.CYAN}==>{colors.END} {pkg_name}/{colors.RED}{old_version}{colors.END} ==> {pkg_name}/{colors.GREEN}{pkg_version}{colors.END}.")
+        i+=1
+
     if len(packages_to_update) > 0:
         if not args.noconfirm:
             ask = input(f"{colors.BOLD}==>{colors.END} Do you want update ? Y/n : ")
@@ -409,7 +427,6 @@ def AUR_upgr():
                 print(f"{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
                 return
         for pkg in packages_to_update:
-            print(pkg["result_name"], pkg["pkg_version"])
             args.noconfirm = True
             download_pckg(pkg["result_name"]); install_pckg(pkg["pkg_version"], pkg["result_name"])
     
