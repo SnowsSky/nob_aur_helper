@@ -1,4 +1,5 @@
 from curses import *
+# TUI VER 1.1.1
 class TUI():
     def __init__(self, timer = "60", disabled = False):
         self.timer = timer 
@@ -48,7 +49,7 @@ class TUI():
                         win.addstr(5, 1, "New time value (min) : ")
                         echo()
                         new_time = win.getstr(5, 18, 5).decode('utf-8')
-                        self.timer = int(new_time)
+                        self.timer = float(new_time)
                         if self.timer <= 0:
                             self.timer = 60
                         noecho()
