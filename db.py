@@ -3,9 +3,10 @@ from colors import Colors
 import os
 import subprocess
 colors = Colors()
-# DB VER 1.0.0-2
+# DB VER 1.0.1
 class Database:
-    DBpath = f'/home/{os.getlogin()}/nob_db.db'
+    user = os.getenv("LOGNAME")
+    DBpath = f'/home/{user}/nob_db.db'
     connection = sqlite3.connect(DBpath)
     cursor = connection.cursor()
     def add_db(pkg : str , pkg_version: str):
