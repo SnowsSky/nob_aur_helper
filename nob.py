@@ -12,7 +12,6 @@ import random
 from colors import Colors 
 from TUI import TUI
 colors = Colors()
-import shutil
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -20,6 +19,7 @@ def parse_args():
     parser.add_argument("-Ss", type=str, required=False, help=f"Search a package from AUR" ,dest="search")
     parser.add_argument("-Sb", type=str, nargs='+', required=False, help=f"Build a package (but not installing it.)" ,dest="build")
     parser.add_argument("-Sa", action='store_true', required=False, help="Upgrades AUR packages", dest="aur_upgrade")
+    parser.add_argument("-Qua", action='store_true', required=False, help="Show updates avalaible for installed AUR packages", dest="aur_check_upgrade")
     parser.add_argument("-U", type=str, nargs='+', required=False, help="localy installing a AUR package", dest="local_install")
     parser.add_argument("-Sr", action='store_true', required=False, help="Install a random package from AUR", dest="install_random") # [WARNING] : I am no responsible for any damage caused by this feature, this will download a random package from the AUR.
     parser.add_argument("-Qa", action='store_true', required=False, help="Show all packages installed with nob", dest="show_installed_aur_pkgs")
@@ -36,7 +36,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.4.2"
+_version = "1.5.0"
 _pyalpm_version = libalpm.alpm.version()
 
 args = parse_args()
@@ -98,8 +98,8 @@ def local_install():
     for pkg in args.local_install:
         pkg_name = "".join(pkg)
         if not pkg in os.listdir(cache_folder): print(f"{colors.RED}==> ERROR{colors.END} : Package {pkg_name} not found on cache."); return
+        pkg_version, _ = download_find_pkg(pkg, True)
         if pkg in pkgs:
-            pkg_version = pkgs[pkg]
             Database.add_db(pkg, pkg_version)
             to_reinstall.append((pkg, pkg_version))
         else:
@@ -145,8 +145,11 @@ def main():
     if args.nob_version:
         print(f"{colors.BOLD}Nob {_version}\nPyalpm {_pyalpm_version}{colors.END}")
         return
+    if args.aur_check_upgrade:
+        AUR_upgr(False)
+        return
     if args.aur_upgrade:
-        AUR_upgr()
+        AUR_upgr(True)
         return
     if args.remove:
         remove_pckg()
@@ -381,19 +384,18 @@ def find_pkg(pkg):
     print(f"{colors.BOLD}==>{colors.END} {colors.BOLD}{results}{colors.END} results found for {pkg}.")
     return 1
 
-def AUR_upgr():
+def AUR_upgr(upgrade):
     packages = Database.read_db()
     packages_to_update = []
     old_pkgs= {}
     # reading db file + Adding Packages in packages var 
-    
     print(f"{colors.CYAN}==>{colors.END} Checking for AUR packages updates... [0%] (0/{len(packages)})", end='', flush=True)
-    #Check for updates && check if package is on th AUR.
+    #Check for updates && check if package is on the AUR.
     i=0
     for pkg_name, pkg_ver in packages:
         i +=1; percent = round(i / len(packages) * 100)
         if percent >= 100: print(f"\r{colors.CYAN}==>{colors.END} Checking for AUR packages updates... [{percent}%] ({i}/{len(packages)})", end='\n', flush=True)
-        else : print(f"\r{colors.CYAN}==>{colors.END} Checking for AUR packages updates... [{percent}%] ({i}/{len(packages)})", end='', flush=True)
+        elif str(i).endswith("5") : print(f"\r{colors.CYAN}==>{colors.END} Checking for AUR packages updates... [{percent}%] ({i}/{len(packages)})", end='', flush=True)
         try:
             with urllib.request.urlopen(f"https://aur.archlinux.org/rpc.php?v=5&type=info&arg={pkg_name}") as response:
                 data = response.read().decode("utf-8")
@@ -413,24 +415,22 @@ def AUR_upgr():
                 "pkg_version": pkg_ver
             })
             old_pkgs[result_name] = pkg_version
-    i = 0
     for pkg in packages_to_update:
         pkg_name= pkg['result_name']; pkg_version = pkg['pkg_version']
         old_version = old_pkgs[pkg_name]
         print(f"{colors.CYAN}==>{colors.END} {pkg_name}/{colors.RED}{old_version}{colors.END} ==> {pkg_name}/{colors.GREEN}{pkg_version}{colors.END}.")
-        i+=1
-
-    if len(packages_to_update) > 0:
-        if not args.noconfirm:
-            ask = input(f"{colors.BOLD}==>{colors.END} Do you want update ? Y/n : ")
-            if ask.lower() == "n":
-                print(f"{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
-                return
-        for pkg in packages_to_update:
-            args.noconfirm = True
-            download_pckg(pkg["result_name"]); install_pckg(pkg["pkg_version"], pkg["result_name"])
-    
-    else: print(f"{colors.CYAN}==>{colors.END} No available updates found."); return
+    if upgrade:
+        if len(packages_to_update) > 0:
+            if not args.noconfirm:
+                ask = input(f"{colors.BOLD}==>{colors.END} Do you want update ? Y/n : ")
+                if ask.lower() == "n":
+                    print(f"{colors.RED}==> CANCELED{colors.END} : Update Canceled.")
+                    return
+            for pkg in packages_to_update:
+                args.noconfirm = True
+                download_pckg(pkg["result_name"]); install_pckg(pkg["pkg_version"], pkg["result_name"])
+        
+        else: print(f"{colors.CYAN}==>{colors.END} No available updates found."); return
 
 def arch_update_timer() :
     print("Do not run this at root / sudo.")
