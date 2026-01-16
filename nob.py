@@ -36,7 +36,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.5.0"
+_version = "1.5.1"
 _pyalpm_version = libalpm.alpm.version()
 
 args = parse_args()
@@ -412,9 +412,9 @@ def AUR_upgr(upgrade):
         if pkg_version != pkg_ver:
             packages_to_update.append({
                 "result_name": result_name,
-                "pkg_version": pkg_ver
+                "pkg_version": pkg_version
             })
-            old_pkgs[result_name] = pkg_version
+            old_pkgs[result_name] = pkg_ver
     for pkg in packages_to_update:
         pkg_name= pkg['result_name']; pkg_version = pkg['pkg_version']
         old_version = old_pkgs[pkg_name]
