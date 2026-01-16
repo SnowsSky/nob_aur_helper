@@ -44,6 +44,10 @@ class alpm:
         
     def update(noconfirm = False):
         localdb = alpm.localdb
+        orphan_packages = []
+        non_orphan_deps =  []
+        download_size = 0
+        install_size = 0
         print(f"{colors.CYAN}==>{colors.END} Syncing databases. Please wait.")
         for db in pacdb.get_syncdbs():
             try:
@@ -51,14 +55,13 @@ class alpm:
             except pyalpm.error as e:
                 print(f"{colors.RED}==> ERROR{colors.END} : Error while syncing databases : {e}")
                 return
-        download_size = 0
-        install_size = 0
+        
         for db in pacdb.get_syncdbs():
             if len(db.pkgcache) <= 0 : continue
             print(f"{colors.CYAN}==>{colors.END} Checking updates for [{db.name}].")
             upgrades = []
-                
             for pkg in db.pkgcache:
+                
                 local_pkg = localdb.get_pkg(pkg.name)
                 if not local_pkg: continue
                 if pyalpm.vercmp(pkg.version, local_pkg.version) > 0:
@@ -72,11 +75,13 @@ class alpm:
             if upgrades:
                 for name, old_ver, new_ver in upgrades:
                     print(f"{colors.GREEN}==> {colors.END}{name}: {colors.RED}{old_ver}{colors.END} -> {colors.GREEN}{new_ver}{colors.END}")
+
         if download_size <= 0:
-            print(f"{colors.PURPLE}==>{colors.END} There is nothing to do"); return
+            print(f"{colors.PURPLE}==>{colors.END} There is nothing to do"); return 
                     
         print(f"{colors.CYAN}==>{colors.END} Estimated download size : {download_size / (1024 * 1024):.2f} MiB")
         print(f"{colors.CYAN}==>{colors.END} Estimated Net Upgrade Size  : {install_size / (1024 * 1024):.2f} MiB")
+        
         if not noconfirm: 
             ask = input(f"{colors.BOLD}==>{colors.END} Do you want to continue upgrade ? Y/n : ")
             if ask.lower() == "n":
@@ -84,7 +89,18 @@ class alpm:
                 return
         
         subprocess.run(['sudo', 'pacman', '-Syu', '--noconfirm' ], text=True, stdout=True)
-    
+        #checking if a dependency package is orphan
+        for pkg in localdb.pkgcache:
+            # checking used_deps
+            for dependency in pkg.depends:
+                non_orphan_deps.append(dependency)
+        for pkg in localdb.pkgcache:
+            if pkg.reason == pyalpm.PKG_REASON_DEPEND and not pkg.name in non_orphan_deps :
+                orphan_packages.append(pkg.name)
+        print(f"{colors.YELLOW}==> WARNING{colors.END} : I found {len(orphan_packages)} Orphan packages on your system :\n{'    '.join(orphan_packages)}")
+
+        
+
     def getpkgslist(): 
         localdb = alpm.localdb
         pkgs =  {}
