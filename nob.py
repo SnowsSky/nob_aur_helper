@@ -36,7 +36,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.5.2"
+_version = "1.5.2-rc2"
 _pyalpm_version = libalpm.alpm.version()
 
 args = parse_args()
@@ -388,7 +388,7 @@ def sync_nob_db():
     alpm_packages = libalpm.alpm.getpkgslist()
     packages = Database.read_db()
     for package_name, package_version in packages:
-        alpm_version = alpm_packages[package_version]
+        alpm_version = alpm_packages[package_name]
         if package_version != alpm_version:
             Database.add_db(package_name, alpm_version)
 
