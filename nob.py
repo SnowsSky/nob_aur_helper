@@ -36,7 +36,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.5.2-rc2"
+_version = "1.5.2"
 _pyalpm_version = libalpm.alpm.version()
 
 args = parse_args()
@@ -121,6 +121,7 @@ def local_install():
         print(f"{colors.GREEN}==>{colors.END} Successfully installed {pkg_name}")
 
 def main():
+    
     if args.local_install:
         local_install()
         return
@@ -139,20 +140,18 @@ def main():
     if args.clear_cache:
         clean_cache()
         return
+    if args.remove:
+        remove_pckg()
+        return
+    sync_nob_db()
     if args.show_installed_aur_pkgs:
         installed_aur_pkgs()
         return 
-    if args.nob_version:
-        print(f"{colors.BOLD}Nob {_version}\nPyalpm {_pyalpm_version}{colors.END}")
-        return
     if args.aur_check_upgrade:
         AUR_upgr(False)
         return
     if args.aur_upgrade:
         AUR_upgr(True)
-        return
-    if args.remove:
-        remove_pckg()
         return
     if args.search:
         find_pkg(args.search)
@@ -393,7 +392,6 @@ def sync_nob_db():
             Database.add_db(package_name, alpm_version)
 
 def AUR_upgr(upgrade):
-    sync_nob_db()
     packages = Database.read_db()
     packages_to_update = []
     old_pkgs= {}
