@@ -36,7 +36,7 @@ def parse_args():
 
     return parser.parse_args()
 
-_version = "1.5.1"
+_version = "1.5.2"
 _pyalpm_version = libalpm.alpm.version()
 
 args = parse_args()
@@ -384,7 +384,16 @@ def find_pkg(pkg):
     print(f"{colors.BOLD}==>{colors.END} {colors.BOLD}{results}{colors.END} results found for {pkg}.")
     return 1
 
+def sync_nob_db():
+    alpm_packages = libalpm.alpm.getpkgslist()
+    packages = Database.read_db()
+    for package_name, package_version in packages:
+        alpm_version = alpm_packages[package_version]
+        if package_version != alpm_version:
+            Database.add_db(package_name, alpm_version)
+
 def AUR_upgr(upgrade):
+    sync_nob_db()
     packages = Database.read_db()
     packages_to_update = []
     old_pkgs= {}
